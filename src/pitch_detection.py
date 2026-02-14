@@ -50,16 +50,18 @@ def detect_pitch(
 
     audio_tensor = torch.tensor(audio, dtype=torch.float32).unsqueeze(0).to(device)
 
-    pitch, periodicity = torchcrepe.predict(
-        audio_tensor,
-        sample_rate,
-        hop_length=hop_length,
-        fmin=fmin,
-        fmax=fmax,
-        model=model,
-        return_periodicity=True,
-        device=device,
-    )
+    with torch.no_grad():
+        pitch, periodicity = torchcrepe.predict(
+            audio_tensor,
+            sample_rate,
+            hop_length=hop_length,
+            fmin=fmin,
+            fmax=fmax,
+            model=model,
+            return_periodicity=True,
+            batch_size=2048,
+            device=device,
+        )
 
     # Smooth periodicity and apply voicing threshold
     periodicity = torchcrepe.filter.median(periodicity, win_length=3)
