@@ -51,6 +51,16 @@ def _get_rss_gb() -> float:
     return psutil.Process(os.getpid()).memory_info().rss / (1024 ** 3)
 
 
+_peak_rss_gb: float = 0.0
+_peak_rss_lock = threading.Lock()
+
+
+def get_peak_rss_gb() -> float:
+    """Return the peak RSS observed since enforce_memory_limit was called."""
+    with _peak_rss_lock:
+        return _peak_rss_gb
+
+
 def enforce_memory_limit(max_gb: float = 16) -> None:
     """Enforce a hard memory limit on this process.
 
@@ -58,8 +68,12 @@ def enforce_memory_limit(max_gb: float = 16) -> None:
     backstop, then starts a daemon thread that polls RSS every 0.5s and
     terminates the process if it exceeds *max_gb*.
 
+    Also tracks peak RSS — retrieve with get_peak_rss_gb().
+
     Call this at the top of every experiment run script.
     """
+    global _peak_rss_gb
+
     # Hard OS-level backstop (RLIMIT_AS limits virtual address space)
     import resource
     hard_limit = int(max_gb * 1024 ** 3)
@@ -69,8 +83,12 @@ def enforce_memory_limit(max_gb: float = 16) -> None:
         pass  # Some systems don't support RLIMIT_AS
 
     def _watchdog() -> None:
+        global _peak_rss_gb
         while True:
             rss = _get_rss_gb()
+            with _peak_rss_lock:
+                if rss > _peak_rss_gb:
+                    _peak_rss_gb = rss
             if rss > max_gb:
                 print(
                     f"\n[MEMORY GUARD] RSS is {rss:.2f} GB, exceeding limit of "
@@ -147,6 +165,7 @@ def save_results(
     payload = {
         "detector": name,
         "elapsed_seconds": elapsed,
+        "peak_memory_gb": round(get_peak_rss_gb(), 2),
         "num_frames": len(frames),
         "settings": settings or {},
         "frames": [asdict(f) for f in frames],

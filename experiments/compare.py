@@ -30,8 +30,8 @@ def load_all() -> dict[str, dict]:
 
 def summary_table(results: dict[str, dict]):
     """Print a comparison summary table."""
-    print(f"\n{'Detector':<15} {'Time (s)':>8} {'Frames':>8} {'Voiced':>8} {'Top 3 Notes':<30} {'Match'}")
-    print("-" * 85)
+    print(f"\n{'Detector':<15} {'Time (s)':>8} {'Peak MB':>8} {'Frames':>8} {'Voiced':>8} {'Top 3 Notes':<30} {'Match'}")
+    print("-" * 95)
 
     for name, data in results.items():
         frames = [Frame(f["time"], f["freq"], f["confidence"]) for f in data["frames"]]
@@ -45,7 +45,10 @@ def summary_table(results: dict[str, dict]):
         overlap = top3_names & EXPECTED_TOP_NOTES
         match = f"{len(overlap)}/3"
 
-        print(f"{name:<15} {data['elapsed_seconds']:>8.2f} {len(frames):>8} {voiced:>8} {top3_str:<30} {match}")
+        peak_mb = data.get("peak_memory_gb", 0) * 1024
+        mem_str = f"{peak_mb:.0f}" if peak_mb > 0 else "n/a"
+
+        print(f"{name:<15} {data['elapsed_seconds']:>8.2f} {mem_str:>8} {len(frames):>8} {voiced:>8} {top3_str:<30} {match}")
 
 
 def consensus_analysis(results: dict[str, dict]):
