@@ -27,7 +27,8 @@ def main():
                 convert_to_freq=True,
             )
 
-            all_ts.extend((timesteps.cpu().numpy() + offset_sec).tolist())
+            # pesto returns timesteps in milliseconds — convert to seconds
+            all_ts.extend((timesteps.cpu().numpy() / 1000.0 + offset_sec).tolist())
             all_pitch.extend(pitch.cpu().numpy().tolist())
             all_conf.extend(confidence.cpu().numpy().tolist())
 
