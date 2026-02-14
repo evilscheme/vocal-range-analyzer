@@ -24,7 +24,10 @@ def isolate_vocals(
         Tuple of (vocals_mono_float32, sample_rate).
     """
     try:
-        import demucs.api
+        import torch
+        import librosa
+        from demucs.pretrained import get_model
+        from demucs.apply import apply_model
     except ImportError:
         raise ImportError(
             "Demucs is required for Pipeline A. "
@@ -35,9 +38,33 @@ def isolate_vocals(
     if not audio_path.exists():
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-    separator = demucs.api.Separator(model=model, device=device)
-    _, separated = separator.separate_audio_file(str(audio_path))
-    vocals_tensor = separated["vocals"]
+    demucs_model = get_model(model)
+    sample_rate = demucs_model.samplerate
+
+    if device is None:
+        if torch.backends.mps.is_available():
+            device = "mps"
+        elif torch.cuda.is_available():
+            device = "cuda"
+        else:
+            device = "cpu"
+
+    demucs_model.to(device)
+
+    # Load audio with librosa (avoids torchaudio/torchcodec issues)
+    audio_np, sr = librosa.load(str(audio_path), sr=sample_rate, mono=False)
+    if audio_np.ndim == 1:
+        audio_np = np.stack([audio_np, audio_np])  # mono -> stereo
+    wav = torch.tensor(audio_np, dtype=torch.float32)
+    wav = wav.unsqueeze(0).to(device)  # (1, channels, samples)
+
+    # Apply model
+    with torch.no_grad():
+        sources = apply_model(demucs_model, wav, device=device)
+
+    # Extract vocals (index matches model.sources order)
+    vocals_idx = demucs_model.sources.index("vocals")
+    vocals_tensor = sources[0, vocals_idx]  # (channels, samples)
 
     # Convert to mono numpy float32
     vocals_np = vocals_tensor.cpu().numpy()
@@ -45,8 +72,6 @@ def isolate_vocals(
         vocals_np = vocals_np.mean(axis=0)
     elif vocals_np.ndim == 2:
         vocals_np = vocals_np[0]
-
-    sample_rate = separator.samplerate
 
     if output_dir is not None:
         import soundfile as sf

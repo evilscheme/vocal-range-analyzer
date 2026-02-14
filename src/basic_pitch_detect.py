@@ -29,6 +29,7 @@ def detect_pitch_basic(
     """
     try:
         from basic_pitch.inference import predict
+        from basic_pitch import ICASSP_2022_MODEL_PATH
     except ImportError:
         raise ImportError(
             "basic-pitch is required for Pipeline B. "
@@ -36,9 +37,17 @@ def detect_pitch_basic(
         )
 
     import numpy as np
+    from pathlib import Path as _Path
+
+    # Prefer ONNX model for broader compatibility
+    model_path = ICASSP_2022_MODEL_PATH
+    onnx_path = _Path(str(ICASSP_2022_MODEL_PATH) + ".onnx")
+    if onnx_path.exists():
+        model_path = onnx_path
 
     _, _, note_events = predict(
         str(audio_path),
+        model_or_model_path=model_path,
         onset_threshold=onset_threshold,
         frame_threshold=frame_threshold,
         minimum_note_length=minimum_note_length_ms,
