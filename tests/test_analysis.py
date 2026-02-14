@@ -73,3 +73,127 @@ class TestHzToNoteName:
 
     def test_middle_c(self):
         assert hz_to_note_name(261.63) == "C4"
+
+
+from src.analysis import build_note_histogram, InsufficientDataError
+
+
+class TestBuildNoteHistogram:
+    def test_empty_input(self):
+        assert build_note_histogram([]) == {}
+
+    def test_single_note_100_frames(self):
+        frames = [PitchFrame(t * 0.01, 440.0, 0.9) for t in range(100)]
+        hist = build_note_histogram(frames, hop_duration_seconds=0.01)
+        assert "A4" in hist
+        assert hist["A4"] == pytest.approx(1.0, abs=0.02)
+
+    def test_two_notes(self):
+        frames = (
+            [PitchFrame(t * 0.01, 440.0, 0.9) for t in range(50)]
+            + [PitchFrame(t * 0.01 + 0.5, 261.63, 0.9) for t in range(50)]
+        )
+        hist = build_note_histogram(frames, hop_duration_seconds=0.01)
+        assert "A4" in hist
+        assert "C4" in hist
+        assert hist["A4"] == pytest.approx(0.5, abs=0.02)
+        assert hist["C4"] == pytest.approx(0.5, abs=0.02)
+
+    def test_confidence_filtering(self):
+        frames = [PitchFrame(0.0, 440.0, 0.1)]
+        assert build_note_histogram(frames, confidence_threshold=0.5) == {}
+
+    def test_zero_freq_skipped(self):
+        frames = [PitchFrame(0.0, 0.0, 0.9)]
+        assert build_note_histogram(frames) == {}
+
+
+from src.analysis import group_into_note_events
+
+
+class TestGroupIntoNoteEvents:
+    def test_single_sustained_note(self):
+        frames = [PitchFrame(t * 0.01, 440.0, 0.9) for t in range(100)]
+        events = group_into_note_events(frames, hop_duration_seconds=0.01)
+        assert len(events) == 1
+        assert events[0].note_name == "A4"
+        assert events[0].duration == pytest.approx(1.0, abs=0.02)
+
+    def test_two_notes_sequential(self):
+        frames = (
+            [PitchFrame(t * 0.01, 440.0, 0.9) for t in range(50)]
+            + [PitchFrame(t * 0.01 + 0.5, 261.63, 0.9) for t in range(50)]
+        )
+        events = group_into_note_events(frames, hop_duration_seconds=0.01)
+        assert len(events) == 2
+        assert events[0].note_name == "A4"
+        assert events[1].note_name == "C4"
+
+    def test_short_notes_filtered(self):
+        frames = [PitchFrame(t * 0.01, 440.0, 0.9) for t in range(2)]
+        events = group_into_note_events(frames, min_duration_seconds=0.05, hop_duration_seconds=0.01)
+        assert len(events) == 0
+
+    def test_empty_input(self):
+        assert group_into_note_events([]) == []
+
+    def test_low_confidence_skipped(self):
+        frames = [PitchFrame(t * 0.01, 440.0, 0.1) for t in range(100)]
+        events = group_into_note_events(frames, confidence_threshold=0.5)
+        assert len(events) == 0
+
+
+from src.analysis import compute_vocal_range, VocalRangeResult
+
+
+class TestComputeVocalRange:
+    def test_insufficient_data_raises(self):
+        frames = [PitchFrame(0.0, 440.0, 0.9)]
+        with pytest.raises(InsufficientDataError):
+            compute_vocal_range(frames)
+
+    def test_single_note(self):
+        frames = [PitchFrame(t * 0.01, 440.0, 0.9) for t in range(100)]
+        result = compute_vocal_range(frames, hop_duration_seconds=0.01)
+        assert result.lowest_note == "A4"
+        assert result.highest_note == "A4"
+        assert result.range_semitones == 0
+
+    def test_one_octave_range(self):
+        frames = (
+            [PitchFrame(t * 0.01, 261.63, 0.9) for t in range(50)]
+            + [PitchFrame(t * 0.01 + 0.5, 523.25, 0.9) for t in range(50)]
+        )
+        result = compute_vocal_range(frames, percentile_trim=0.0, hop_duration_seconds=0.01)
+        assert result.lowest_note == "C4"
+        assert result.highest_note == "C5"
+        assert result.range_semitones == 12
+        assert "1 octave" in result.range_display
+
+    def test_range_display_format(self):
+        # E2 (MIDI 40) to C5 (MIDI 72) = 32 semitones = 2 oct + 8 semi
+        frames = (
+            [PitchFrame(t * 0.01, 82.41, 0.9) for t in range(50)]  # E2
+            + [PitchFrame(t * 0.01 + 0.5, 523.25, 0.9) for t in range(50)]  # C5
+        )
+        result = compute_vocal_range(frames, percentile_trim=0.0, hop_duration_seconds=0.01)
+        assert result.range_semitones == 32
+        assert "2 octaves" in result.range_display
+        assert "8 semitones" in result.range_display
+
+    def test_all_low_confidence(self):
+        frames = [PitchFrame(t * 0.01, 440.0, 0.1) for t in range(100)]
+        with pytest.raises(InsufficientDataError):
+            compute_vocal_range(frames, confidence_threshold=0.5)
+
+    def test_histogram_populated(self):
+        frames = [PitchFrame(t * 0.01, 440.0, 0.9) for t in range(100)]
+        result = compute_vocal_range(frames, hop_duration_seconds=0.01)
+        assert "A4" in result.note_histogram
+        assert result.note_histogram["A4"] > 0
+
+    def test_note_events_populated(self):
+        frames = [PitchFrame(t * 0.01, 440.0, 0.9) for t in range(100)]
+        result = compute_vocal_range(frames, hop_duration_seconds=0.01)
+        assert len(result.note_events) > 0
+        assert result.note_events[0].note_name == "A4"
