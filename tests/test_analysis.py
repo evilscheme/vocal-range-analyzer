@@ -197,3 +197,40 @@ class TestComputeVocalRange:
         result = compute_vocal_range(frames, hop_duration_seconds=0.01)
         assert len(result.note_events) > 0
         assert result.note_events[0].note_name == "A4"
+
+
+from src.visualization import plot_vocal_range, plot_pitch_contour
+
+
+class TestVisualization:
+    def _make_result(self) -> VocalRangeResult:
+        """Create a synthetic VocalRangeResult for testing."""
+        frames = (
+            [PitchFrame(t * 0.01, 261.63, 0.9) for t in range(200)]   # C4
+            + [PitchFrame(t * 0.01 + 2.0, 329.63, 0.9) for t in range(150)]  # E4
+            + [PitchFrame(t * 0.01 + 3.5, 440.0, 0.9) for t in range(100)]   # A4
+        )
+        return compute_vocal_range(frames, percentile_trim=0.0, hop_duration_seconds=0.01)
+
+    def test_plot_vocal_range_saves_png(self, tmp_path):
+        result = self._make_result()
+        out = tmp_path / "range.png"
+        plot_vocal_range(result, output_path=out)
+        assert out.exists()
+        assert out.stat().st_size > 0
+
+    def test_plot_pitch_contour_saves_png(self, tmp_path):
+        result = self._make_result()
+        out = tmp_path / "contour.png"
+        plot_pitch_contour(result, output_path=out)
+        assert out.exists()
+        assert out.stat().st_size > 0
+
+    def test_plot_empty_histogram_raises(self):
+        result = VocalRangeResult(
+            lowest_note="A4", highest_note="A4", lowest_midi=69,
+            highest_midi=69, range_semitones=0, range_display="0 semitones",
+            note_histogram={}, note_events=[], pitch_frames=[],
+        )
+        with pytest.raises(ValueError, match="No notes"):
+            plot_vocal_range(result)
