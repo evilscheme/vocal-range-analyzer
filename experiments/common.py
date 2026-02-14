@@ -47,27 +47,27 @@ class Frame:
 # ---------------------------------------------------------------------------
 def _get_rss_gb() -> float:
     """Return current process RSS in gigabytes."""
-    try:
-        import psutil
-        process = psutil.Process(os.getpid())
-        return process.memory_info().rss / (1024 ** 3)
-    except ImportError:
-        pass
-    # Fallback: resource.getrusage on macOS (ru_maxrss is in bytes on macOS)
-    import resource
-    usage = resource.getrusage(resource.RUSAGE_SELF)
-    # On macOS ru_maxrss is in bytes; on Linux it is in kilobytes.
-    if sys.platform == "darwin":
-        return usage.ru_maxrss / (1024 ** 3)
-    else:
-        return usage.ru_maxrss / (1024 ** 2)
+    import psutil
+    return psutil.Process(os.getpid()).memory_info().rss / (1024 ** 3)
 
 
 def enforce_memory_limit(max_gb: float = 16) -> None:
-    """Start a daemon thread that monitors RSS and exits if it exceeds *max_gb*.
+    """Enforce a hard memory limit on this process.
+
+    Sets an OS-level virtual memory limit via resource.setrlimit as a hard
+    backstop, then starts a daemon thread that polls RSS every 0.5s and
+    terminates the process if it exceeds *max_gb*.
 
     Call this at the top of every experiment run script.
     """
+    # Hard OS-level backstop (RLIMIT_AS limits virtual address space)
+    import resource
+    hard_limit = int(max_gb * 1024 ** 3)
+    try:
+        resource.setrlimit(resource.RLIMIT_AS, (hard_limit, hard_limit))
+    except (ValueError, resource.error):
+        pass  # Some systems don't support RLIMIT_AS
+
     def _watchdog() -> None:
         while True:
             rss = _get_rss_gb()
@@ -79,7 +79,7 @@ def enforce_memory_limit(max_gb: float = 16) -> None:
                     flush=True,
                 )
                 os._exit(1)
-            time.sleep(2)
+            time.sleep(0.5)
 
     t = threading.Thread(target=_watchdog, daemon=True)
     t.start()

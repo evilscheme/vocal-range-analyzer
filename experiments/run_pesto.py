@@ -1,4 +1,4 @@
-"""PESTO pitch detection on separated vocals."""
+"""PESTO pitch detection on separated vocals (chunked to limit memory)."""
 from common import load_vocals, save_results, print_summary, Frame, timer, enforce_memory_limit
 
 
@@ -6,27 +6,40 @@ def main():
     enforce_memory_limit(16)
     import torch
     import pesto
+    import gc
 
     audio = load_vocals(sr=16000)
-    audio_tensor = torch.from_numpy(audio).float()  # 1D: (num_samples,)
+
+    # Process in 30-second chunks to avoid PESTO's massive memory usage
+    chunk_seconds = 30
+    chunk_samples = chunk_seconds * 16000
+    all_ts, all_pitch, all_conf = [], [], []
 
     with timer() as t:
-        timesteps, pitch, confidence, _ = pesto.predict(
-            audio_tensor, 16000,
-            step_size=10.0,
-            convert_to_freq=True,
-        )
+        for start in range(0, len(audio), chunk_samples):
+            chunk = audio[start:start + chunk_samples]
+            audio_tensor = torch.from_numpy(chunk).float()
+            offset_sec = start / 16000
 
-    ts_np = timesteps.cpu().numpy()
-    pitch_np = pitch.cpu().numpy()
-    conf_np = confidence.cpu().numpy()
+            timesteps, pitch, confidence, _ = pesto.predict(
+                audio_tensor, 16000,
+                step_size=10.0,
+                convert_to_freq=True,
+            )
+
+            all_ts.extend((timesteps.cpu().numpy() + offset_sec).tolist())
+            all_pitch.extend(pitch.cpu().numpy().tolist())
+            all_conf.extend(confidence.cpu().numpy().tolist())
+
+            del audio_tensor, timesteps, pitch, confidence
+            gc.collect()
 
     frames = [
-        Frame(float(ts), float(p) if p > 0 else 0.0, float(c))
-        for ts, p, c in zip(ts_np, pitch_np, conf_np)
+        Frame(ts, p if p > 0 else 0.0, c)
+        for ts, p, c in zip(all_ts, all_pitch, all_conf)
     ]
 
-    save_results("pesto", frames, t["elapsed"], {"step_size_ms": 10.0})
+    save_results("pesto", frames, t["elapsed"], {"step_size_ms": 10.0, "chunk_seconds": chunk_seconds})
     print_summary("PESTO", frames, t["elapsed"])
 
 
