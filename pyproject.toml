@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vocal-range-analyzer"
+version = "0.1.0"
+description = "Analyze the vocal range of a song from an audio file"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "librosa>=0.10",
+    "soundfile>=0.12",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+pipeline-a = [
+    "demucs>=4.0",
+    "torchcrepe>=0.0.22",
+]
+pipeline-b = [
+    "basic-pitch>=0.3",
+]
+all = [
+    "vocal-range-analyzer[pipeline-a,pipeline-b]",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

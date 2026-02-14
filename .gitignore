@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
+*.wav
+*.mp3
+*.flac
+*.ogg
+test_output/
+results/
+.venv/
+venv/
