@@ -27,17 +27,21 @@ Uses Demucs for vocal isolation and FCPE for pitch detection.
       A4:  1.78s ########
 ```
 
-Charts are saved when `--output` is specified: a note histogram with voice type overlays and a pitch contour plot.
+When `--output` is specified, the output directory will contain:
+- `vocals.wav` — isolated vocal track
+- `karaoke.wav` — accompaniment (everything minus vocals)
+- `range.png` — note histogram with voice type overlays
+- `contour.png` — pitch contour plot
 
 ## Installation
 
 Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync --extra pipeline
+uv sync
 
 # Include dev dependencies (pytest)
-uv sync --extra pipeline --group dev
+uv sync --group dev
 ```
 
 ## Usage
@@ -56,7 +60,7 @@ uv run python analyze.py song.mp3 --no-plot
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--output`, `-o` | none | Output directory for charts and isolated vocals |
+| `--output`, `-o` | none | Output directory for charts, isolated vocals, and karaoke track |
 | `--device` | auto | Device for ML inference: `cpu`, `cuda`, `mps` |
 | `--confidence` | `0.5` | Confidence threshold for note detection |
 | `--no-plot` | off | Skip chart generation |

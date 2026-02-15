@@ -2546,16 +2546,12 @@ name = "vocal-range-analyzer"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "demucs" },
     { name = "librosa" },
     { name = "matplotlib" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "soundfile" },
-]
-
-[package.optional-dependencies]
-pipeline = [
-    { name = "demucs" },
     { name = "torchfcpe" },
 ]
 
@@ -2567,14 +2563,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "demucs", marker = "extra == 'pipeline'", specifier = ">=4.0" },
+    { name = "demucs", specifier = ">=4.0" },
     { name = "librosa", specifier = ">=0.10" },
     { name = "matplotlib", specifier = ">=3.7" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "soundfile", specifier = ">=0.12" },
-    { name = "torchfcpe", marker = "extra == 'pipeline'" },
+    { name = "torchfcpe" },
 ]
-provides-extras = ["pipeline"]
 
 [package.metadata.requires-dev]
 dev = [
