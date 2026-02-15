@@ -1,9 +1,49 @@
 """Vocal isolation using Demucs."""
 from __future__ import annotations
 
+import os
+import subprocess
+import tempfile
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
+
+
+def _load_audio(audio_path: Path, target_sr: int) -> np.ndarray:
+    """Load audio file as float32 numpy array with shape (channels, samples).
+
+    Uses soundfile directly for supported formats. Falls back to ffmpeg
+    for unsupported formats (e.g. M4A/AAC) to avoid librosa's deprecated
+    audioread fallback.
+    """
+    import librosa
+
+    try:
+        audio_np, sr = sf.read(str(audio_path), always_2d=True)
+    except sf.LibsndfileError:
+        # Convert unsupported formats (m4a, aac, wma, etc.) to WAV via ffmpeg
+        tmp_path = None
+        try:
+            fd, tmp_path = tempfile.mkstemp(suffix=".wav")
+            os.close(fd)
+            subprocess.run(
+                ["ffmpeg", "-i", str(audio_path), "-ar", str(target_sr),
+                 "-ac", "2", "-f", "wav", "-y", tmp_path],
+                capture_output=True, check=True,
+            )
+            audio_np, sr = sf.read(tmp_path, always_2d=True)
+        finally:
+            if tmp_path:
+                os.unlink(tmp_path)
+
+    # audio_np is (samples, channels) from soundfile — transpose to (channels, samples)
+    audio_np = audio_np.T.astype(np.float32)
+
+    if sr != target_sr:
+        audio_np = librosa.resample(audio_np, orig_sr=sr, target_sr=target_sr)
+
+    return audio_np
 
 
 def isolate_vocals(
@@ -25,7 +65,6 @@ def isolate_vocals(
     """
     try:
         import torch
-        import librosa
         from demucs.pretrained import get_model
         from demucs.apply import apply_model
     except ImportError:
@@ -51,8 +90,7 @@ def isolate_vocals(
 
     demucs_model.to(device)
 
-    # Load audio with librosa (avoids torchaudio/torchcodec issues)
-    audio_np, sr = librosa.load(str(audio_path), sr=sample_rate, mono=False)
+    audio_np = _load_audio(audio_path, sample_rate)
     if audio_np.ndim == 1:
         audio_np = np.stack([audio_np, audio_np])  # mono -> stereo
     wav = torch.tensor(audio_np, dtype=torch.float32)
@@ -74,7 +112,6 @@ def isolate_vocals(
         vocals_np = vocals_np[0]
 
     if output_dir is not None:
-        import soundfile as sf
         out_path = Path(output_dir) / "vocals.wav"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         sf.write(str(out_path), vocals_np, sample_rate)
