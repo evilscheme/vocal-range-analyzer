@@ -1,6 +1,8 @@
 """Pitch detection using FCPE (Fast Context-based Pitch Estimation)."""
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from src.analysis import PitchFrame
@@ -57,7 +59,14 @@ def detect_pitch(
     audio_tensor = torch.from_numpy(audio).float().unsqueeze(0).unsqueeze(-1).to(device)
     target_len = (len(audio) // _FCPE_HOP) + 1
 
-    with torch.no_grad():
+    # torchfcpe 0.0.4 calls torch.stft without pre-allocated output,
+    # triggering a deprecation warning in PyTorch 2.x about tensor resizing.
+    with warnings.catch_warnings(), torch.no_grad():
+        warnings.filterwarnings(
+            "ignore",
+            message="An output with one or more elements was resized",
+            category=UserWarning,
+        )
         f0 = model.infer(
             audio_tensor,
             sr=_FCPE_SR,
