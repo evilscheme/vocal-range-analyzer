@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 
 from src.analysis import VocalRangeResult, midi_to_note_name
@@ -14,13 +15,32 @@ from src.analysis import VocalRangeResult, midi_to_note_name
 
 # Standard voice type ranges as (name, low_midi, high_midi, color)
 VOICE_TYPES = [
-    ("Bass",     40, 64, "#2196F3"),    # E2-E4
-    ("Baritone", 45, 69, "#4CAF50"),    # A2-A4
-    ("Tenor",    48, 72, "#FF9800"),    # C3-C5
-    ("Alto",     53, 77, "#9C27B0"),    # F3-F5
-    ("Mezzo",    57, 81, "#E91E63"),    # A3-A5
-    ("Soprano",  60, 84, "#F44336"),    # C4-C6
+    ("Bass",     40, 64, "#1976D2"),    # E2-E4
+    ("Baritone", 45, 69, "#388E3C"),    # A2-A4
+    ("Tenor",    48, 72, "#F57C00"),    # C3-C5
+    ("Alto",     53, 77, "#7B1FA2"),    # F3-F5
+    ("Mezzo",    57, 81, "#C2185B"),    # A3-A5
+    ("Soprano",  60, 84, "#D32F2F"),    # C4-C6
 ]
+
+_VOICE_TYPE_ABBREVS = {
+    "Bass": "Bass", "Baritone": "Bar.", "Tenor": "Ten.",
+    "Alto": "Alto", "Mezzo": "Mez.", "Soprano": "Sop.",
+}
+
+_BAR_CMAP = LinearSegmentedColormap.from_list(
+    "vocal_bars", ["#1565C0", "#7E57C2", "#EF6C00"],
+)
+
+
+def _note_sort_key(name: str) -> int:
+    """Parse note name like 'C4' to MIDI number for sorting."""
+    from src.analysis import NOTE_NAMES
+    for i, n in enumerate(NOTE_NAMES):
+        if name.startswith(n) and (len(n) == len(name.rstrip("0123456789-"))):
+            octave = int(name[len(n):])
+            return (octave + 1) * 12 + i
+    return 0
 
 
 def plot_vocal_range(
@@ -29,79 +49,96 @@ def plot_vocal_range(
     output_path: str | Path | None = None,
     show: bool = False,
 ) -> None:
-    """Create horizontal bar chart of note occurrence with voice type overlays."""
+    """Create horizontal bar chart with a voice-type range indicator panel."""
     if not result.note_histogram:
         raise ValueError("No notes to plot — histogram is empty.")
 
-    # Sort notes by MIDI number (low to high)
-    from src.analysis import NOTE_NAMES
-
-    def note_sort_key(name: str) -> int:
-        """Parse note name to MIDI for sorting."""
-        for i, n in enumerate(NOTE_NAMES):
-            if name.startswith(n) and (len(n) == len(name.rstrip("0123456789-"))):
-                octave = int(name[len(n):])
-                return (octave + 1) * 12 + i
-        return 0
-
-    sorted_notes = sorted(result.note_histogram.items(), key=lambda x: note_sort_key(x[0]))
+    sorted_notes = sorted(result.note_histogram.items(), key=lambda x: _note_sort_key(x[0]))
     note_names = [n for n, _ in sorted_notes]
     durations = [d for _, d in sorted_notes]
+    n_notes = len(note_names)
 
-    # Color by octave
-    octaves = [int(n[-1]) if n[-1].isdigit() else int(n[-2:]) for n in note_names]
-    cmap = plt.cm.viridis
-    unique_octaves = sorted(set(octaves))
-    if len(unique_octaves) > 1:
-        octave_norm = [(o - min(unique_octaves)) / (max(unique_octaves) - min(unique_octaves))
-                       for o in octaves]
-    else:
-        octave_norm = [0.5] * len(octaves)
-    colors = [cmap(v) for v in octave_norm]
+    # Bar colors: pitch-based gradient (blue → teal → amber)
+    bar_colors = [_BAR_CMAP(i / max(1, n_notes - 1)) for i in range(n_notes)]
 
-    # Figure size scales with number of notes
-    fig_height = max(4, len(note_names) * 0.35 + 2)
-    fig, ax = plt.subplots(figsize=(10, fig_height))
+    # Ensure tiny bars are still visible (min 1.5% of max)
+    max_dur = max(durations)
+    min_visible = max_dur * 0.015
+    display_durations = [max(d, min_visible) for d in durations]
 
-    # Voice type background shading
-    for vtype_name, low_midi, high_midi, color in VOICE_TYPES:
-        low_note = midi_to_note_name(low_midi)
-        high_note = midi_to_note_name(high_midi)
-        # Find Y positions that fall within this range
-        y_positions = []
-        for i, n in enumerate(note_names):
-            midi = note_sort_key(n)
-            if low_midi <= midi <= high_midi:
-                y_positions.append(i)
+    # Layout: main chart + narrow range indicator panel
+    fig_height = max(4, n_notes * 0.35 + 2)
+    fig = plt.figure(figsize=(11, fig_height))
+    fig.patch.set_facecolor("white")
+
+    gs = fig.add_gridspec(1, 2, width_ratios=[8, 1.2], wspace=0.08)
+    ax = fig.add_subplot(gs[0])
+    ax_range = fig.add_subplot(gs[1], sharey=ax)
+
+    ax.set_facecolor("#FAFAFA")
+    ax_range.set_facecolor("white")
+
+    # === Main bar chart ===
+    ax.barh(
+        range(n_notes), display_durations,
+        color=bar_colors, edgecolor="white", linewidth=0.5,
+        height=0.7, zorder=2,
+    )
+
+    ax.set_yticks(range(n_notes))
+    ax.set_yticklabels(note_names, fontsize=9, fontfamily="monospace")
+    ax.set_xlabel("Duration (seconds)", fontsize=10, color="#555")
+    ax.set_xlim(0, max_dur * 1.1)
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#DDD")
+    ax.spines["bottom"].set_color("#DDD")
+    ax.xaxis.grid(True, alpha=0.15, linewidth=0.5, color="#999")
+    ax.set_axisbelow(True)
+    ax.tick_params(colors="#555", which="both")
+
+    # Title and subtitle
+    subtitle = f"Range: {result.lowest_note} \u2013 {result.highest_note}  \u00b7  {result.range_display}"
+    ax.set_title(subtitle, fontsize=10, color="#888", pad=20)
+    fig.suptitle(title, fontsize=15, fontweight="bold", color="#222")
+
+    # === Voice type range indicator panel (right) ===
+    n_types = len(VOICE_TYPES)
+    for idx, (vtype_name, low_midi, high_midi, color) in enumerate(VOICE_TYPES):
+        y_positions = [
+            i for i, n in enumerate(note_names)
+            if low_midi <= _note_sort_key(n) <= high_midi
+        ]
         if y_positions:
-            ax.axhspan(
-                min(y_positions) - 0.4, max(y_positions) + 0.4,
-                alpha=0.08, color=color, label=f"{vtype_name} ({low_note}-{high_note})",
+            ax_range.barh(
+                y_positions, [0.85] * len(y_positions),
+                left=idx, color=color, alpha=0.75,
+                height=0.95, edgecolor="white", linewidth=0.3,
             )
 
-    # Bar chart
-    bars = ax.barh(range(len(note_names)), durations, color=colors, edgecolor="white", linewidth=0.5)
-    ax.set_yticks(range(len(note_names)))
-    ax.set_yticklabels(note_names, fontsize=9, fontfamily="monospace")
-    ax.set_xlabel("Duration (seconds)")
-    ax.set_title(title, fontsize=14, fontweight="bold")
-    ax.set_xlim(0, max(durations) * 1.15)
+    # Column headers (voice type abbreviations)
+    for idx, (vtype_name, _, _, color) in enumerate(VOICE_TYPES):
+        ax_range.text(
+            (idx + 0.42) / n_types, 1.01,
+            _VOICE_TYPE_ABBREVS.get(vtype_name, vtype_name[:3]),
+            rotation=90, ha="center", va="bottom",
+            transform=ax_range.transAxes,
+            fontsize=6.5, color=color, fontweight="bold",
+        )
 
-    # Subtitle with range info
-    subtitle = f"Range: {result.lowest_note} \u2013 {result.highest_note} | {result.range_display}"
-    ax.text(0.5, 1.02, subtitle, transform=ax.transAxes, ha="center", fontsize=10, color="gray")
+    ax_range.set_xlim(0, n_types)
+    ax_range.set_xticks([])
+    for spine in ax_range.spines.values():
+        spine.set_visible(False)
+    ax_range.tick_params(left=False, labelleft=False)
 
-    # Legend for voice types
-    handles = [mpatches.Patch(color=c, alpha=0.3, label=f"{n} ({midi_to_note_name(lo)}-{midi_to_note_name(hi)})")
-               for n, lo, hi, c in VOICE_TYPES]
-    ax.legend(handles=handles, loc="lower right", fontsize=7, framealpha=0.8)
-
-    plt.tight_layout()
+    gs.tight_layout(fig, rect=[0, 0, 1, 0.96])
 
     if output_path:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(str(output_path), dpi=150, bbox_inches="tight")
+        fig.savefig(str(output_path), dpi=150, bbox_inches="tight", facecolor="white")
 
     if show:
         plt.show()
