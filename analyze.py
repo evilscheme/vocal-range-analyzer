@@ -14,7 +14,7 @@ def run_pipeline_a(
     output_dir: Path | None,
     device: str | None,
 ) -> list[PitchFrame]:
-    """Pipeline A: Demucs vocal separation + torchcrepe pitch detection."""
+    """Pipeline A: Demucs vocal separation + FCPE pitch detection."""
     from src.separation import isolate_vocals
     from src.pitch_detection import detect_pitch
 
@@ -22,7 +22,7 @@ def run_pipeline_a(
     vocals, sr = isolate_vocals(audio_path, output_dir=output_dir, device=device)
     print(f"[Pipeline A] Vocals isolated ({len(vocals) / sr:.1f}s at {sr}Hz)")
 
-    print("[Pipeline A] Detecting pitch with torchcrepe...")
+    print("[Pipeline A] Detecting pitch with FCPE...")
     frames = detect_pitch(vocals, sr, device=device)
     voiced = sum(1 for f in frames if f.confidence > 0)
     print(f"[Pipeline A] {len(frames)} frames, {voiced} voiced")
@@ -89,7 +89,7 @@ Examples:
 
     pipelines = []
     if args.pipeline in ("a", "both"):
-        pipelines.append(("Pipeline A (Demucs + torchcrepe)", "a"))
+        pipelines.append(("Pipeline A (Demucs + FCPE)", "a"))
     if args.pipeline in ("b", "both"):
         pipelines.append(("Pipeline B (BasicPitch)", "b"))
 
