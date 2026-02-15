@@ -30,8 +30,7 @@ def isolate_vocals(
         from demucs.apply import apply_model
     except ImportError:
         raise ImportError(
-            "Demucs is required for Pipeline A. "
-            "Install with: pip install 'vocal-range-analyzer[pipeline-a]'"
+            "Demucs is required. Install with: pip install vocal-range-analyzer"
         )
 
     audio_path = Path(audio_path)
@@ -75,8 +74,19 @@ def isolate_vocals(
 
     if output_dir is not None:
         import soundfile as sf
-        out_path = Path(output_dir) / "vocals.wav"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        sf.write(str(out_path), vocals_np, sample_rate)
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+
+        sf.write(str(out / "vocals.wav"), vocals_np, sample_rate)
+
+        # Karaoke (accompaniment) = sum of all non-vocal stems
+        non_vocal_idx = [i for i in range(len(demucs_model.sources)) if i != vocals_idx]
+        karaoke_tensor = sources[0, non_vocal_idx].sum(dim=0)
+        karaoke_np = karaoke_tensor.cpu().numpy()
+        if karaoke_np.ndim == 2 and karaoke_np.shape[0] > 1:
+            karaoke_np = karaoke_np.mean(axis=0)
+        elif karaoke_np.ndim == 2:
+            karaoke_np = karaoke_np[0]
+        sf.write(str(out / "karaoke.wav"), karaoke_np, sample_rate)
 
     return vocals_np, sample_rate
