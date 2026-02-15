@@ -21,6 +21,8 @@ def run_pipeline_a(
     print("[Pipeline A] Separating vocals with Demucs...")
     vocals, sr = isolate_vocals(audio_path, output_dir=output_dir, device=device)
     print(f"[Pipeline A] Vocals isolated ({len(vocals) / sr:.1f}s at {sr}Hz)")
+    if output_dir:
+        print(f"[Pipeline A] Saved vocals.wav and karaoke.wav to {output_dir}/")
 
     print("[Pipeline A] Detecting pitch with FCPE...")
     frames = detect_pitch(vocals, sr, device=device)
