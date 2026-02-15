@@ -15,16 +15,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pipeline-a = [
+pipeline = [
     "demucs>=4.0",
     "torchfcpe",
 ]
-pipeline-b = [
-    "basic-pitch>=0.3",
-]
-all = [
-    "vocal-range-analyzer[pipeline-a,pipeline-b]",
-]
+
+[dependency-groups]
 dev = [
     "pytest>=7.0",
     "pytest-cov",

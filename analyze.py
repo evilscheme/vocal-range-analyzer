@@ -29,16 +29,6 @@ def run_pipeline_a(
     return frames
 
 
-def run_pipeline_b(audio_path: Path) -> list[PitchFrame]:
-    """Pipeline B: BasicPitch direct analysis."""
-    from src.basic_pitch_detect import detect_pitch_basic
-
-    print("[Pipeline B] Analyzing with BasicPitch...")
-    frames = detect_pitch_basic(audio_path)
-    print(f"[Pipeline B] {len(frames)} pitch frames detected")
-    return frames
-
-
 def print_results(result: VocalRangeResult, pipeline_label: str) -> None:
     """Pretty-print analysis results to stdout."""
     print(f"\n{'=' * 50}")
@@ -61,14 +51,11 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
-  python analyze.py song.mp3 --pipeline a
-  python analyze.py song.mp3 --pipeline b --output results/
-  python analyze.py song.mp3 --pipeline both --output results/
+  python analyze.py song.mp3 --output results/
+  python analyze.py song.mp3 --confidence 0.6 --output results/
         """,
     )
     parser.add_argument("audio_file", type=Path, help="Path to audio file (mp3, wav, flac)")
-    parser.add_argument("--pipeline", choices=["a", "b", "both"], default="a",
-                        help="Pipeline to use (default: a)")
     parser.add_argument("--output", "-o", type=Path, default=None,
                         help="Output directory for charts and isolated vocals")
     parser.add_argument("--device", type=str, default=None,
@@ -87,45 +74,34 @@ Examples:
     if args.output:
         args.output.mkdir(parents=True, exist_ok=True)
 
-    pipelines = []
-    if args.pipeline in ("a", "both"):
-        pipelines.append(("Pipeline A (Demucs + FCPE)", "a"))
-    if args.pipeline in ("b", "both"):
-        pipelines.append(("Pipeline B (BasicPitch)", "b"))
+    t0 = time.time()
+    try:
+        frames = run_pipeline_a(args.audio_file, args.output, args.device)
+        result = compute_vocal_range(frames, confidence_threshold=args.confidence)
+        print_results(result, "Demucs + FCPE")
 
-    for label, pipe_id in pipelines:
-        t0 = time.time()
-        try:
-            if pipe_id == "a":
-                frames = run_pipeline_a(args.audio_file, args.output, args.device)
-            else:
-                frames = run_pipeline_b(args.audio_file)
+        if not args.no_plot and args.output:
+            from src.visualization import plot_vocal_range, plot_pitch_contour
+            plot_vocal_range(
+                result,
+                title=f"{args.audio_file.stem} - Vocal Range",
+                output_path=args.output / "range.png",
+            )
+            plot_pitch_contour(
+                result,
+                title=f"{args.audio_file.stem} - Pitch Contour",
+                output_path=args.output / "contour.png",
+            )
+            print(f"  Charts saved to {args.output}/")
 
-            result = compute_vocal_range(frames, confidence_threshold=args.confidence)
-            print_results(result, label)
+    except InsufficientDataError as e:
+        print(f"  Error: {e}", file=sys.stderr)
+    except ImportError as e:
+        print(f"  Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
-            if not args.no_plot and args.output:
-                from src.visualization import plot_vocal_range, plot_pitch_contour
-                plot_vocal_range(
-                    result,
-                    title=f"{args.audio_file.stem} - {label}",
-                    output_path=args.output / f"range_{pipe_id}.png",
-                )
-                plot_pitch_contour(
-                    result,
-                    title=f"{args.audio_file.stem} - Pitch Contour ({label})",
-                    output_path=args.output / f"contour_{pipe_id}.png",
-                )
-                print(f"  Charts saved to {args.output}/")
-
-        except InsufficientDataError as e:
-            print(f"  {label}: {e}", file=sys.stderr)
-        except ImportError as e:
-            print(f"  {label}: {e}", file=sys.stderr)
-            sys.exit(1)
-
-        elapsed = time.time() - t0
-        print(f"  Time: {elapsed:.1f}s")
+    elapsed = time.time() - t0
+    print(f"  Time: {elapsed:.1f}s")
 
 
 if __name__ == "__main__":
