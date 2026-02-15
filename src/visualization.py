@@ -10,7 +10,7 @@ import matplotlib.patches as mpatches
 from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 
-from src.analysis import VocalRangeResult, midi_to_note_name
+from src.analysis import VocalRangeResult, NoteEvent, midi_to_note_name, hz_to_midi
 
 
 # Standard voice type ranges as (name, low_midi, high_midi, color)
@@ -134,6 +134,103 @@ def plot_vocal_range(
     ax_range.tick_params(left=False, labelleft=False)
 
     gs.tight_layout(fig, rect=[0, 0, 1, 0.96])
+
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(str(output_path), dpi=150, bbox_inches="tight", facecolor="white")
+
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
+def plot_piano_roll(
+    result: VocalRangeResult,
+    title: str = "Note Events \u2013 Piano Roll",
+    output_path: str | Path | None = None,
+    show: bool = False,
+) -> None:
+    """Plot cleaned note events as horizontal bars (MIDI piano-roll style).
+
+    Overlays faint raw pitch contour dots for context.
+    """
+    if not result.note_events:
+        raise ValueError("No note events to plot.")
+
+    events = result.note_events
+
+    # Determine MIDI range for Y axis
+    all_midi = [e.midi_number for e in events]
+    lo_midi = min(all_midi) - 1
+    hi_midi = max(all_midi) + 1
+
+    # Build Y-axis labels (every note in the range)
+    midi_range = list(range(lo_midi, hi_midi + 1))
+    note_labels = [midi_to_note_name(m) for m in midi_range]
+    midi_to_y = {m: i for i, m in enumerate(midi_range)}
+
+    fig, ax = plt.subplots(figsize=(12, max(4, len(midi_range) * 0.3 + 1.5)))
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("#FAFAFA")
+
+    # Faint raw contour in background
+    voiced = [f for f in result.pitch_frames if f.frequency_hz > 0 and f.confidence > 0]
+    if voiced:
+        raw_times = [f.time_seconds for f in voiced]
+        raw_midi = [hz_to_midi(f.frequency_hz) for f in voiced]
+        raw_y = [midi_to_y.get(m) for m in raw_midi]
+        # Only plot points within the displayed range
+        plot_t = [t for t, y in zip(raw_times, raw_y) if y is not None]
+        plot_y = [y for y in raw_y if y is not None]
+        ax.scatter(plot_t, plot_y, s=0.5, color="#CCC", alpha=0.4, zorder=1)
+
+    # Color bars by pitch position
+    norm_values = [(e.midi_number - lo_midi) / max(1, hi_midi - lo_midi) for e in events]
+
+    for event, nv in zip(events, norm_values):
+        y = midi_to_y[event.midi_number]
+        rect = mpatches.FancyBboxPatch(
+            (event.start_time, y - 0.35),
+            event.duration,
+            0.7,
+            boxstyle="round,pad=0.02",
+            facecolor=_BAR_CMAP(nv),
+            edgecolor="white",
+            linewidth=0.5,
+            alpha=0.85,
+            zorder=2,
+        )
+        ax.add_patch(rect)
+
+    # Axes
+    ax.set_yticks(range(len(midi_range)))
+    ax.set_yticklabels(note_labels, fontsize=8, fontfamily="monospace")
+    ax.set_xlabel("Time (seconds)", fontsize=10, color="#555")
+
+    max_time = max(e.start_time + e.duration for e in events)
+    ax.set_xlim(0, max_time * 1.02)
+    ax.set_ylim(-0.5, len(midi_range) - 0.5)
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#DDD")
+    ax.spines["bottom"].set_color("#DDD")
+    ax.xaxis.grid(True, alpha=0.15, linewidth=0.5, color="#999")
+    ax.set_axisbelow(True)
+    ax.tick_params(colors="#555", which="both")
+
+    # Highlight octave boundaries
+    for m in midi_range:
+        if m % 12 == 0:  # C notes
+            y_pos = midi_to_y[m]
+            ax.axhline(y=y_pos, color="#DDD", linewidth=0.5, zorder=0)
+
+    subtitle = f"Range: {result.lowest_note} \u2013 {result.highest_note}  \u00b7  {result.range_display}"
+    ax.set_title(subtitle, fontsize=10, color="#888", pad=20)
+    fig.suptitle(title, fontsize=15, fontweight="bold", color="#222")
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
 
     if output_path:
         output_path = Path(output_path)

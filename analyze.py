@@ -6,7 +6,9 @@ import sys
 import time
 from pathlib import Path
 
-from src.analysis import PitchFrame, compute_vocal_range, VocalRangeResult, InsufficientDataError
+from src.analysis import (
+    CleaningConfig, PitchFrame, compute_vocal_range, VocalRangeResult, InsufficientDataError,
+)
 
 
 def run_pipeline_a(
@@ -66,6 +68,10 @@ Examples:
                         help="Confidence threshold for note detection (default: 0.5)")
     parser.add_argument("--no-plot", action="store_true",
                         help="Skip chart generation")
+    parser.add_argument("--min-duration", type=float, default=0.1,
+                        help="Minimum note duration in seconds (default: 0.1)")
+    parser.add_argument("--no-cleaning", action="store_true",
+                        help="Disable probabilistic note cleaning")
 
     args = parser.parse_args()
 
@@ -79,22 +85,43 @@ Examples:
     t0 = time.time()
     try:
         frames = run_pipeline_a(args.audio_file, args.output, args.device)
-        result = compute_vocal_range(frames, confidence_threshold=args.confidence)
+
+        cleaning_config = None if args.no_cleaning else CleaningConfig(
+            min_note_duration=args.min_duration,
+        )
+        result = compute_vocal_range(
+            frames,
+            confidence_threshold=args.confidence,
+            cleaning_config=cleaning_config,
+        )
         print_results(result, "Demucs + FCPE")
 
         if not args.no_plot and args.output:
-            from src.visualization import plot_vocal_range, plot_pitch_contour
+            from src.visualization import plot_vocal_range, plot_pitch_contour, plot_piano_roll
+            stem = args.audio_file.stem
             plot_vocal_range(
                 result,
-                title=f"{args.audio_file.stem} - Vocal Range",
+                title=f"{stem} - Vocal Range",
                 output_path=args.output / "range.png",
             )
             plot_pitch_contour(
                 result,
-                title=f"{args.audio_file.stem} - Pitch Contour",
+                title=f"{stem} - Pitch Contour",
                 output_path=args.output / "contour.png",
             )
+            if result.note_events:
+                plot_piano_roll(
+                    result,
+                    title=f"{stem} - Piano Roll",
+                    output_path=args.output / "piano_roll.png",
+                )
             print(f"  Charts saved to {args.output}/")
+
+        if args.output and result.note_events:
+            from src.midi_export import export_midi
+            midi_path = args.output / "notes.mid"
+            export_midi(result.note_events, midi_path)
+            print(f"  MIDI saved to {midi_path}")
 
     except InsufficientDataError as e:
         print(f"  Error: {e}", file=sys.stderr)
