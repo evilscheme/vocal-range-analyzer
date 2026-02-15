@@ -17,7 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 pipeline-a = [
     "demucs>=4.0",
-    "torchcrepe>=0.0.22",
+    "torchfcpe",
 ]
 pipeline-b = [
     "basic-pitch>=0.3",

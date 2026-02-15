@@ -1,4 +1,4 @@
-"""Pitch detection using torchcrepe."""
+"""Pitch detection using FCPE (Fast Context-based Pitch Estimation)."""
 from __future__ import annotations
 
 import numpy as np
@@ -6,26 +6,24 @@ import numpy as np
 from src.analysis import PitchFrame
 
 
+_FCPE_SR = 16_000
+_FCPE_HOP = 160  # 10 ms at 16 kHz
+
+
 def detect_pitch(
     audio: np.ndarray,
     sample_rate: int,
-    hop_length: int = 512,
     fmin: float = 65.0,
     fmax: float = 2000.0,
-    model: str = "full",
-    confidence_threshold: float = 0.21,
     device: str | None = None,
 ) -> list[PitchFrame]:
-    """Detect pitch contour from audio using torchcrepe.
+    """Detect pitch contour from audio using FCPE.
 
     Args:
         audio: Mono float32 numpy array.
         sample_rate: Sample rate in Hz.
-        hop_length: Hop length in samples.
         fmin: Minimum frequency (Hz). Default 65 = C2.
         fmax: Maximum frequency (Hz). Default 2000, well above soprano.
-        model: 'full' (accurate) or 'tiny' (fast).
-        confidence_threshold: Periodicity threshold for voicing.
         device: 'cpu', 'cuda', 'mps', or None (auto-detect).
 
     Returns:
@@ -33,10 +31,10 @@ def detect_pitch(
     """
     try:
         import torch
-        import torchcrepe
+        from torchfcpe import spawn_bundled_infer_model
     except ImportError:
         raise ImportError(
-            "torchcrepe is required for Pipeline A. "
+            "torchfcpe is required for Pipeline A. "
             "Install with: pip install 'vocal-range-analyzer[pipeline-a]'"
         )
 
@@ -48,42 +46,45 @@ def detect_pitch(
         else:
             device = "cpu"
 
-    audio_tensor = torch.tensor(audio, dtype=torch.float32).unsqueeze(0).to(device)
+    # FCPE requires 16 kHz audio
+    if sample_rate != _FCPE_SR:
+        import librosa
+        audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=_FCPE_SR)
+
+    model = spawn_bundled_infer_model(device=device)
+
+    # FCPE expects shape (batch, samples, 1)
+    audio_tensor = torch.from_numpy(audio).float().unsqueeze(0).unsqueeze(-1).to(device)
+    target_len = (len(audio) // _FCPE_HOP) + 1
 
     with torch.no_grad():
-        pitch, periodicity = torchcrepe.predict(
+        f0 = model.infer(
             audio_tensor,
-            sample_rate,
-            hop_length=hop_length,
-            fmin=fmin,
-            fmax=fmax,
-            model=model,
-            return_periodicity=True,
-            batch_size=2048,
-            device=device,
+            sr=_FCPE_SR,
+            decoder_mode="local_argmax",
+            threshold=0.006,
+            f0_min=fmin,
+            f0_max=fmax,
+            interp_uv=False,
+            output_interp_target_length=target_len,
         )
 
-    # Smooth periodicity and apply voicing threshold
-    periodicity = torchcrepe.filter.median(periodicity, win_length=3)
-    pitch = torchcrepe.threshold.At(confidence_threshold)(pitch, periodicity)
-
-    pitch_np = pitch.squeeze().cpu().numpy()
-    periodicity_np = periodicity.squeeze().cpu().numpy()
-    hop_seconds = hop_length / sample_rate
+    f0_np = f0.squeeze().cpu().numpy()
+    hop_seconds = _FCPE_HOP / _FCPE_SR
 
     frames: list[PitchFrame] = []
-    for i, (f, p) in enumerate(zip(pitch_np, periodicity_np)):
-        if np.isnan(f) or f <= 0:
+    for i, f in enumerate(f0_np):
+        if f > 0:
             frames.append(PitchFrame(
                 time_seconds=i * hop_seconds,
-                frequency_hz=0.0,
-                confidence=0.0,
+                frequency_hz=float(f),
+                confidence=1.0,
             ))
         else:
             frames.append(PitchFrame(
                 time_seconds=i * hop_seconds,
-                frequency_hz=float(f),
-                confidence=float(p),
+                frequency_hz=0.0,
+                confidence=0.0,
             ))
 
     return frames
