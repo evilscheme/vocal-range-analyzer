@@ -15,16 +15,34 @@ def run_pipeline_a(
     audio_path: Path,
     output_dir: Path | None,
     device: str | None,
+    skip_isolation: bool = False,
 ) -> list[PitchFrame]:
     """Pipeline A: Demucs vocal separation + FCPE pitch detection."""
-    from src.separation import isolate_vocals
     from src.pitch_detection import detect_pitch
 
-    print("[Pipeline A] Separating vocals with Demucs...")
-    vocals, sr = isolate_vocals(audio_path, output_dir=output_dir, device=device)
-    print(f"[Pipeline A] Vocals isolated ({len(vocals) / sr:.1f}s at {sr}Hz)")
-    if output_dir:
-        print(f"[Pipeline A] Saved vocals.wav and karaoke.wav to {output_dir}/")
+    if skip_isolation:
+        from src.separation import _load_audio
+        import numpy as np
+
+        print("[Pipeline A] Loading audio directly (skipping vocal isolation)...")
+        sr = 44100
+        audio = _load_audio(audio_path, target_sr=sr)
+        # Convert (channels, samples) to mono
+        if audio.ndim == 2 and audio.shape[0] > 1:
+            vocals = audio.mean(axis=0).astype(np.float32)
+        elif audio.ndim == 2:
+            vocals = audio[0]
+        else:
+            vocals = audio
+        print(f"[Pipeline A] Audio loaded ({len(vocals) / sr:.1f}s at {sr}Hz)")
+    else:
+        from src.separation import isolate_vocals
+
+        print("[Pipeline A] Separating vocals with Demucs...")
+        vocals, sr = isolate_vocals(audio_path, output_dir=output_dir, device=device)
+        print(f"[Pipeline A] Vocals isolated ({len(vocals) / sr:.1f}s at {sr}Hz)")
+        if output_dir:
+            print(f"[Pipeline A] Saved vocals.wav and karaoke.wav to {output_dir}/")
 
     print("[Pipeline A] Detecting pitch with FCPE...")
     frames = detect_pitch(vocals, sr, device=device)
@@ -72,6 +90,8 @@ Examples:
                         help="Minimum note duration in seconds (default: 0.1)")
     parser.add_argument("--no-cleaning", action="store_true",
                         help="Disable probabilistic note cleaning")
+    parser.add_argument("--no-isolation", action="store_true",
+                        help="Skip vocal isolation (use when input is already vocals-only)")
 
     args = parser.parse_args()
 
@@ -84,7 +104,8 @@ Examples:
 
     t0 = time.time()
     try:
-        frames = run_pipeline_a(args.audio_file, args.output, args.device)
+        frames = run_pipeline_a(args.audio_file, args.output, args.device,
+                                skip_isolation=args.no_isolation)
 
         cleaning_config = None if args.no_cleaning else CleaningConfig(
             min_note_duration=args.min_duration,
